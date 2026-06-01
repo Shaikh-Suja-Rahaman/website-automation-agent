@@ -40,7 +40,7 @@ export const pageStateTool = tool(
   {
     name: "getPageState",
     description:
-      "Returns the current browser state as JSON: URL, page title, and all visible interactive elements (inputs, buttons, links, selects) with their CSS id, name, placeholder, and bounding box. Call this to understand what is on screen before deciding what to click or fill.",
+      "Returns the current browser state as JSON: URL, page title, scroll telemetry (scrollTop, scrollHeight, clientHeight), and all visible interactive elements (inputs, buttons, links, selects) with their CSS id, name, placeholder, and bounding box. Call this to understand what is on screen before deciding what to click or fill.",
     schema: z.object({}),
   }
 );
@@ -56,9 +56,9 @@ export const scrollTool = tool(
   {
     name: "scrollDown",
     description:
-      "Scroll the page vertically. Use positive values to scroll down, negative values to scroll up. After scrolling, call getPageState again to see newly revealed elements.",
+      "Scroll the page vertically. Use positive values to scroll down, negative values to scroll up. If the element you need is not visible or in the getPageState elements list, use scrollDown to scroll down (e.g. 700px), then call getPageState again to see newly revealed elements.",
     schema: z.object({
-      amount: z.number().describe("Pixels to scroll. Positive = down, negative = up."),
+      amount: z.coerce.number().describe("Pixels to scroll. Positive = down, negative = up."),
     }),
   }
 );
@@ -156,7 +156,7 @@ export const waitTool = tool(
     description:
       "Pause execution for a given number of milliseconds. Use after navigation or interactions that trigger animations or async loading.",
     schema: z.object({
-      ms: z.number().default(1000).describe("Milliseconds to wait"),
+      ms: z.coerce.number().default(1000).describe("Milliseconds to wait"),
     }),
   }
 );

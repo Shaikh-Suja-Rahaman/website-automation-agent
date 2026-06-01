@@ -3,10 +3,7 @@ import {
   navigateToUrl,
   takeScreenshot,
   closeBrowser,
-  getPageElements,
-  getInputs,
   fillInput,
-  getInteractiveElements,
   getVisibleInteractiveElements
 } from "./browser.js";
 

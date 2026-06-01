@@ -6,10 +6,9 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { HumanMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
-import readline from "readline";
 
-import { openBrowser, closeBrowser } from "./browser.js";
-import { allTools } from "./agenttools.js";
+import { openBrowser, closeBrowser } from "../browser.js";
+import { allTools } from "../agenttools.js";
 
 // Dynamically select the best available model
 let model;
@@ -72,67 +71,77 @@ CRITICAL RULES:
 `.trim(),
 });
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+async function runStep(userInput, threadId) {
+  console.log(`\nUser: ${userInput}`);
+  console.log("Thinking & Browsing...");
 
-const askQuestion = (query) => new Promise((resolve) => rl.question(query, resolve));
+  const stream = await agent.stream(
+    { messages: [new HumanMessage(userInput)] },
+    { configurable: { thread_id: threadId } }
+  );
+
+  let finalMessage = null;
+
+  for await (const chunk of stream) {
+    if (chunk.agent) {
+      const agentMsg = chunk.agent.messages[chunk.agent.messages.length - 1];
+      if (agentMsg.tool_calls && agentMsg.tool_calls.length > 0) {
+        console.log(`🤖 Agent is calling tools: ${JSON.stringify(agentMsg.tool_calls.map(tc => tc.name))}`);
+        for (const tc of agentMsg.tool_calls) {
+          console.log(`   Arguments: ${JSON.stringify(tc.args)}`);
+        }
+      } else {
+        finalMessage = agentMsg;
+      }
+    } else if (chunk.tools) {
+      const toolMsg = chunk.tools.messages[chunk.tools.messages.length - 1];
+      console.log(`🛠  Tool finished: ${toolMsg.name}`);
+      console.log(`   Output: ${toolMsg.content.slice(0, 300)}...`);
+    }
+  }
+
+  console.log("\n─── Agent ───────────────────────────────");
+  console.log(finalMessage?.content ?? "(Action completed)");
+  console.log("─────────────────────────────────────────");
+}
 
 async function main() {
-  console.log("Starting Web Automation Chatbot (Type 'exit' to quit)\n");
-  
   await openBrowser();
+  const threadId = "test-session-" + Date.now();
   
-  const threadId = "chat-session-" + Date.now();
-
   try {
-    while (true) {
-      const userInput = await askQuestion("\nUser: ");
-      if (userInput.toLowerCase() === "exit" || userInput.toLowerCase() === "quit") {
-        break;
-      }
-
-      console.log("\nThinking & Browsing...");
-
-      const stream = await agent.stream(
-        { messages: [new HumanMessage(userInput)] },
-        { configurable: { thread_id: threadId } }
-      );
-
-      let finalMessage = null;
-
-      for await (const chunk of stream) {
-        if (chunk.agent) {
-          const agentMsg = chunk.agent.messages[chunk.agent.messages.length - 1];
-          // Check if the agent wants to call a tool
-          if (agentMsg.tool_calls && agentMsg.tool_calls.length > 0) {
-            console.log(`🤖 Agent is calling tool: ${agentMsg.tool_calls[0].name}...`);
-          } else {
-            finalMessage = agentMsg;
-          }
-        } else if (chunk.tools) {
-          const toolMsg = chunk.tools.messages[chunk.tools.messages.length - 1];
-          console.log(`🛠  Tool finished: ${toolMsg.name}`);
+    // Step 1: Navigate
+    await runStep("navigate to https://ui.shadcn.com/docs/forms/react-hook-form", threadId);
+    
+    // Step 2: Search and fill form
+    await runStep("Identify the form elements on the page (Name and Description fields) and automatically fill in the Name and Description", threadId);
+    
+    // Wait and screenshot to verify
+    await new Promise(r => setTimeout(r, 2000));
+    console.log("\nTaking screenshot to verify...");
+    const screenshotAgent = createReactAgent({
+      llm: model,
+      tools: allTools,
+      checkpointSaver: checkpointer,
+    });
+    const ssStream = await screenshotAgent.stream(
+      { messages: [new HumanMessage("take a screenshot to prove the form is filled")] },
+      { configurable: { thread_id: threadId } }
+    );
+    for await (const chunk of ssStream) {
+      if (chunk.agent) {
+        const agentMsg = chunk.agent.messages[chunk.agent.messages.length - 1];
+        if (agentMsg.tool_calls && agentMsg.tool_calls.length > 0) {
+          console.log(`🤖 Agent is calling tool: ${agentMsg.tool_calls[0].name}`);
         }
+      } else if (chunk.tools) {
+        console.log(`🛠  Tool finished: ${chunk.tools.messages[0].name}`);
       }
-
-      console.log("\n─── Agent ───────────────────────────────");
-      console.log(finalMessage?.content ?? "(Action completed)");
-      
-      const usage = finalMessage?.usage_metadata;
-      if (usage) {
-        console.log(`\n[Token Usage] Input: ${usage.input_tokens} | Output: ${usage.output_tokens} | Total: ${usage.total_tokens}`);
-      }
-      console.log("─────────────────────────────────────────");
     }
   } catch (err) {
-    console.error("❌ Agent runtime error:", err);
+    console.error("Error during test:", err);
   } finally {
-    console.log("Closing browser…");
     await closeBrowser();
-    rl.close();
-    console.log("Goodbye!");
   }
 }
 
