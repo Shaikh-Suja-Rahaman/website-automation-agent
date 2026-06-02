@@ -10,7 +10,9 @@ import {
   clickOnScreen,
   takeScreenshot,
   wait,
+  pressKey
 } from "./browser.js";
+
 
 
 
@@ -161,6 +163,32 @@ export const waitTool = tool(
   }
 );
 
+export const pressKeyTool = tool(
+  async ({ key }) => {
+    await pressKey(key);
+    return `Pressed ${key}`;
+  },
+  {
+    name: "pressKey",
+   description:
+  "Press a keyboard key. After filling a search box, use Enter to submit the search when no visible Search button exists. Use Escape to close dialogs. Use Tab to move focus between fields.",
+    schema: z.object({
+      key: z.enum([
+        "Enter",
+        "Escape",
+        "Tab",
+        "ArrowDown",
+        "ArrowUp",
+        "ArrowLeft",
+        "ArrowRight",
+        "Backspace",
+        "Delete",
+        "Space",
+      ]),
+    }),
+  }
+);
+
 
 export const allTools = [
   navigateTool,
@@ -172,5 +200,5 @@ export const allTools = [
   doubleClickTool,
   screenshotTool,
   waitTool,
+  pressKeyTool
 ];
- 

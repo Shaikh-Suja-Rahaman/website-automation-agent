@@ -224,3 +224,11 @@ export async function wait(ms = 1000) {
   await new Promise((resolve) => setTimeout(resolve, ms));
   console.log(`Waited ${ms}ms`);
 }
+
+export async function pressKey(key) {
+  const page = getPage();
+
+  await page.keyboard.press(key);
+
+  console.log(`Pressed key: ${key}`);
+}
