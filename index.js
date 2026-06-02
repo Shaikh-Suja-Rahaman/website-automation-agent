@@ -9,7 +9,12 @@ import { MemorySaver } from "@langchain/langgraph";
 import readline from "readline";
 
 import { openBrowser, closeBrowser } from "./browser.js";
-import { allTools } from "./agenttools.js";
+import { allTools } from "./Agenttools.js";
+
+import chalk from "chalk"
+import ora from "ora"
+import {theme, banner, section, success, info, error} from './cli-ui-functions.js'
+
 
 // Dynamically select the best available model
 let model;
@@ -22,21 +27,9 @@ if (process.env.NVIDIA_API_KEY) {
     },
     temperature: 0,
   });
-  console.log("🤖 Configured with: NVIDIA Llama 3.1 70b");
-} else if (process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes("YOUR_")) {
-  model = new ChatOpenAI({
-    modelName: "gpt-4o",
-    apiKey: process.env.OPENAI_API_KEY,
-    temperature: 0,
-  });
-  console.log("🤖 Configured with: OpenAI GPT-4o");
-} else if (process.env.GEMINI_API_KEY) {
-  model = new ChatGoogleGenerativeAI({
-    model: "gemini-2.5-flash",
-    apiKey: process.env.GEMINI_API_KEY,
-    temperature: 0,
-  });
-  console.log("🤖 Configured with: Gemini 2.5 Flash");
+  console.log(chalk.bold.cyan("Configured with: NVIDIA Llama 3.1 70b"));
+  console.log(chalk.gray("────────────────────────────────────"));
+
 }
 
 const checkpointer = new MemorySaver();
@@ -79,61 +72,131 @@ const rl = readline.createInterface({
 
 const askQuestion = (query) => new Promise((resolve) => rl.question(query, resolve));
 
+
+
 async function main() {
-  console.log("Starting Web Automation Chatbot (Type 'exit' to quit)\n");
-  
+  banner();
+
+  const spinner = ora({
+    text: theme.muted("Launching browser..."),
+  }).start();
+
   await openBrowser();
-  
-  const threadId = "chat-session-" + Date.now();
+
+  spinner.succeed(theme.success("Browser ready"));
+
+  const threadId = `chat-${Date.now()}`;
 
   try {
     while (true) {
-      const userInput = await askQuestion("\nUser: ");
-      if (userInput.toLowerCase() === "exit" || userInput.toLowerCase() === "quit") {
+      const userInput = await askQuestion(
+        theme.accent.bold("\nUser > ")
+      );
+
+      if (
+        ["exit", "quit"].includes(userInput.toLowerCase())
+      ) {
         break;
       }
 
-      console.log("\nThinking & Browsing...");
+      section("Agent");
+
+      const thinking = ora({
+        text: theme.muted("Thinking..."),
+      }).start();
 
       const stream = await agent.stream(
-        { messages: [new HumanMessage(userInput)] },
-        { configurable: { thread_id: threadId } }
+        {
+          messages: [new HumanMessage(userInput)],
+        },
+        {
+          configurable: {
+            thread_id: threadId,
+          },
+        }
       );
 
       let finalMessage = null;
 
       for await (const chunk of stream) {
         if (chunk.agent) {
-          const agentMsg = chunk.agent.messages[chunk.agent.messages.length - 1];
-          // Check if the agent wants to call a tool
-          if (agentMsg.tool_calls && agentMsg.tool_calls.length > 0) {
-            console.log(`🤖 Agent is calling tool: ${agentMsg.tool_calls[0].name}...`);
+          const msg =
+            chunk.agent.messages[
+              chunk.agent.messages.length - 1
+            ];
+
+          if (
+            msg.tool_calls &&
+            msg.tool_calls.length > 0
+          ) {
+            thinking.stop();
+
+            info(
+              `${msg.tool_calls[0].name}()`
+            );
           } else {
-            finalMessage = agentMsg;
+            finalMessage = msg;
           }
-        } else if (chunk.tools) {
-          const toolMsg = chunk.tools.messages[chunk.tools.messages.length - 1];
-          console.log(`🛠  Tool finished: ${toolMsg.name}`);
+        }
+
+        if (chunk.tools) {
+          const tool =
+            chunk.tools.messages[
+              chunk.tools.messages.length - 1
+            ];
+
+          success(`${tool.name} completed`);
         }
       }
 
-      console.log("\n─── Agent ───────────────────────────────");
-      console.log(finalMessage?.content ?? "(Action completed)");
-      
-      const usage = finalMessage?.usage_metadata;
+      section("Assistant");
+
+      console.log(
+        theme.text(
+          finalMessage?.content ??
+            "Action completed."
+        )
+      );
+
+      const usage =
+        finalMessage?.usage_metadata;
+
       if (usage) {
-        console.log(`\n[Token Usage] Input: ${usage.input_tokens} | Output: ${usage.output_tokens} | Total: ${usage.total_tokens}`);
+        console.log(
+          "\n" +
+            theme.muted(
+              `Tokens: ${usage.total_tokens} ` +
+                `(In: ${usage.input_tokens}, Out: ${usage.output_tokens})`
+            )
+        );
       }
-      console.log("─────────────────────────────────────────");
+
+      console.log(
+        theme.muted(
+          "\n──────────────────────────────────────────────"
+        )
+      );
     }
   } catch (err) {
-    console.error("❌ Agent runtime error:", err);
+    error(`Runtime error: ${err.message}`);
   } finally {
-    console.log("Closing browser…");
+    section("Shutdown");
+
+    const spinner = ora({
+      text: theme.muted("Closing browser..."),
+    }).start();
+
     await closeBrowser();
+
+    spinner.succeed(
+      theme.success("Browser closed")
+    );
+
     rl.close();
-    console.log("Goodbye!");
+
+    console.log(
+      "\n" + theme.muted("Session ended.\n")
+    );
   }
 }
-
 main();

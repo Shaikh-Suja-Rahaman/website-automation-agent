@@ -1,36 +1,32 @@
-import {
-  openBrowser,
-  navigateToUrl,
-  takeScreenshot,
-  closeBrowser,
-  fillInput,
-  getVisibleInteractiveElements
-} from "./browser.js";
-
-await openBrowser();
-
-await navigateToUrl(
-  "https://ui.shadcn.com/docs/forms/react-hook-form"
-);
-
-console.log(await getVisibleInteractiveElements());
+import readline from "readline"
 
 
-await fillInput(
-  "#form-rhf-demo-title",
-  "Website Automation Agent"
-);
+const rl = readline.createInterface({
+  input : process.stdin,
+  output : process.stdout
+})
 
-await fillInput(
-  "#form-rhf-demo-description",
-  "This form was filled automatically using Playwright."
-);
-
-await takeScreenshot();
-await closeBrowser();
+let text = null;
 
 
+// while(true){
+//   rl.question("What is your name? ", (answer) => {
+//   // console.log(answer);
+//   text = answer;
 
-// const inputs = await getInputs();
+//   console.log(text);
 
-// console.log(inputs);
+// });
+
+// }
+
+
+const askQuestion = (query) => {
+  return new Promise((resolve) => rl.question(query, resolve));
+}
+
+while(true){
+  const name = await askQuestion("");
+  console.log(name);
+
+}
