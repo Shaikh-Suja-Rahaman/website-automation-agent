@@ -53,7 +53,36 @@ if (!model) {
 
 const checkpointer = new MemorySaver();
 
+async function enhanceQuery(query, model) {
+  const response = await model.invoke([
+    {
+      role: "system",
+      content: `
+Rewrite the user's request into a concise task description for an autonomous browser agent.
 
+Rules:
+- Preserve intent.
+- Do not invent requirements.
+- Keep it under 60 words.
+- If already clear, return it unchanged.
+
+Example:
+
+User:
+Find React Hook Form docs
+
+Output:
+Open the React Hook Form documentation, review the relevant sections, and provide a concise summary of the key concepts and usage.
+`,
+    },
+    {
+      role: "user",
+      content: query,
+    },
+  ]);
+
+  return response.content.trim();
+}
 
 
 const agent = createReactAgent({
@@ -96,8 +125,10 @@ async function main() {
   let thinking = null;
   try {
     while (true) {
-      const userInput = await askQuestion(theme.accent.bold("\nUser > "));
-
+const userInput = await enhanceQuery(
+  await askQuestion(theme.accent.bold("\nUser > ")),
+  model
+);
       if (isExitCommand(userInput)) {
         break;
       }
