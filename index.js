@@ -7,17 +7,18 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 import { HumanMessage } from "@langchain/core/messages";
 import { MemorySaver } from "@langchain/langgraph";
 import readline from "readline";
+import ora from "ora";
 
 import { openBrowser, closeBrowser } from "./browser.js";
 import { allTools } from "./Agenttools.js";
+import { theme, banner, section, success, info, error } from "./cli-ui-functions.js";
 
-import chalk from "chalk"
-import ora from "ora"
-import {theme, banner, section, success, info, error} from './cli-ui-functions.js'
+/* =========================
+   Model
+========================= */
 
-
-// Dynamically select the best available model
 let model;
+
 if (process.env.NVIDIA_API_KEY) {
   model = new ChatOpenAI({
     modelName: "meta/llama-3.1-70b-instruct",
@@ -27,10 +28,27 @@ if (process.env.NVIDIA_API_KEY) {
     },
     temperature: 0,
   });
-  console.log(chalk.bold.cyan("Configured with: NVIDIA Llama 3.1 70b"));
-  console.log(chalk.gray("────────────────────────────────────"));
 
+  console.log("Configured with: NVIDIA Llama 3.1 70b");
+} else if (process.env.GOOGLE_API_KEY) {
+  model = new ChatGoogleGenerativeAI({
+    model: "gemini-2.0-flash",
+    apiKey: process.env.GOOGLE_API_KEY,
+    temperature: 0,
+  });
+
+  console.log("Configured with: Google Gemini");
 }
+
+if (!model) {
+  throw new Error(
+    "No supported model API key found. Set NVIDIA_API_KEY or GOOGLE_API_KEY."
+  );
+}
+
+/* =========================
+   Agent
+========================= */
 
 const checkpointer = new MemorySaver();
 
@@ -56,59 +74,80 @@ CRITICAL RULES:
 1. NEVER guess or assume CSS selectors. You MUST ONLY call interaction tools (like "fillInput", "clickElement", "doubleClick") using the exact CSS selectors present in the "elements" list of the most recent "getPageState" output.
 2. If the elements you need (e.g. name or description inputs) are NOT listed in the "elements" array of the current page state:
    - THE TASK IS NOT COMPLETE. YOU ARE FORBIDDEN from outputting conversational text or declaring the elements "not found", "not visible", or "impossible to fill".
-   - You MUST call "scrollDown" (amount: 700) to scroll down.
+   - YOU MUST call "scrollDown" (amount: 700) to scroll down.
    - IMMEDIATELY call "getPageState" again to inspect the new view.
    - Repeat this scroll-and-inspect loop until you find the elements or reach the bottom of the page (where scrollTop + clientHeight >= scrollHeight).
    - Only when you have reached the very bottom of the page and still cannot find the elements, you may stop and report this to the user.
-3. If the user asks you to fill in a field but does not specify the exact value/text to fill, you MUST NOT ask for clarification or give up. Instead, autonomously generate a sensible placeholder value (e.g., "John Doe" for names, "This is a test description" for descriptions, "john@example.com" for emails) and call the "fillInput" tool to fill it.
+3. If the user asks you to fill in a field but does not specify the exact value/text to fill, you MUST NOT ask for clarification or give up. Instead, autonomously generate a sensible placeholder value (e.g. "John Doe" for names, "This is a test description" for descriptions, "john@example.com" for emails) and call the "fillInput" tool to fill it.
 4. While searching and interacting, ONLY emit tool calls. Do NOT write any conversational explanation to the user during the search loop.
 `.trim(),
 });
+
+/* =========================
+   Input
+========================= */
 
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
 
-const askQuestion = (query) => new Promise((resolve) => rl.question(query, resolve));
+const askQuestion = (query) =>
+  new Promise((resolve) => rl.question(query, resolve));
 
+function isExitCommand(input) {
+  const value = input.trim().toLowerCase();
+  return value === "exit" || value === "quit";
+}
 
+/* =========================
+   Main
+========================= */
 
 async function main() {
   banner();
 
-  const spinner = ora({
-    text: theme.muted("Launching browser..."),
-  }).start();
-
+  console.log("Opening browser...");
   await openBrowser();
-
-  spinner.succeed(theme.success("Browser ready"));
+  console.log("Browser ready");
 
   const threadId = `chat-${Date.now()}`;
 
   try {
     while (true) {
-      const userInput = await askQuestion(
-        theme.accent.bold("\nUser > ")
-      );
+      const userInput = await askQuestion(theme.accent.bold("\nUser > "));
 
-      if (
-        ["exit", "quit"].includes(userInput.toLowerCase())
-      ) {
+      if (isExitCommand(userInput)) {
         break;
       }
 
       section("Agent");
 
+      // const thinking = ora({
+      //   text: "",
+      //   spinner: "dots",
+      //   color: "white"
+      // }).start();
+
       const thinking = ora({
-        text: theme.muted("Thinking..."),
-      }).start();
+  text: "",
+  color: "magenta",
+  spinner: {
+  interval: 150,
+ frames: [
+    "▢▢▢▢▢▢",
+    "■▢▢▢▢▢",
+    "▢■▢▢▢▢",
+    "▢▢■▢▢▢",
+    "▢▢▢■▢▢",
+    "▢▢▢▢■▢",
+    "▢▢▢▢▢■",
+  ],
+},
+}).start();
 
       const stream = await agent.stream(
-        {
-          messages: [new HumanMessage(userInput)],
-        },
+        { messages: [new HumanMessage(userInput)] },
         {
           configurable: {
             thread_id: threadId,
@@ -120,83 +159,46 @@ async function main() {
 
       for await (const chunk of stream) {
         if (chunk.agent) {
-          const msg =
-            chunk.agent.messages[
-              chunk.agent.messages.length - 1
-            ];
+          const msg = chunk.agent.messages.at(-1);
 
-          if (
-            msg.tool_calls &&
-            msg.tool_calls.length > 0
-          ) {
+          if (msg?.tool_calls?.length > 0) {
             thinking.stop();
-
-            info(
-              `${msg.tool_calls[0].name}()`
-            );
-          } else {
+            info(`${msg.tool_calls[0].name}()`);
+          } else if (msg?.content) {
             finalMessage = msg;
+            thinking.stop();
           }
         }
 
         if (chunk.tools) {
-          const tool =
-            chunk.tools.messages[
-              chunk.tools.messages.length - 1
-            ];
-
+          const tool = chunk.tools.messages.at(-1);
           success(`${tool.name} completed`);
+          thinking.start();
         }
       }
 
+      thinking.stop();
+
       section("Assistant");
+      console.log(theme.text(finalMessage?.content ?? "Action completed."));
 
       console.log(
-        theme.text(
-          finalMessage?.content ??
-            "Action completed."
-        )
-      );
-
-      const usage =
-        finalMessage?.usage_metadata;
-
-      if (usage) {
-        console.log(
-          "\n" +
-            theme.muted(
-              `Tokens: ${usage.total_tokens} ` +
-                `(In: ${usage.input_tokens}, Out: ${usage.output_tokens})`
-            )
-        );
-      }
-
-      console.log(
-        theme.muted(
-          "\n──────────────────────────────────────────────"
-        )
+        theme.muted("\n──────────────────────────────────────────────")
       );
     }
   } catch (err) {
+    thinking?.stop?.();
     error(`Runtime error: ${err.message}`);
   } finally {
     section("Shutdown");
 
-    const spinner = ora({
-      text: theme.muted("Closing browser..."),
-    }).start();
-
+    console.log("Closing browser...");
     await closeBrowser();
-
-    spinner.succeed(
-      theme.success("Browser closed")
-    );
+    console.log("Browser closed");
 
     rl.close();
-
-    console.log(
-      "\n" + theme.muted("Session ended.\n")
-    );
+    console.log("\nSession ended.\n");
   }
 }
+
 main();
