@@ -81,6 +81,7 @@ Open the React Hook Form documentation, review the relevant sections, and provid
     },
   ]);
 
+
   return response.content.trim();
 }
 
@@ -129,6 +130,8 @@ const userInput = await enhanceQuery(
   await askQuestion(theme.accent.bold("\nUser > ")),
   model
 );
+  console.log(userInput);
+  
       if (isExitCommand(userInput)) {
         break;
       }
